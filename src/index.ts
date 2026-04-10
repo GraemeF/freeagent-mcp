@@ -19,6 +19,7 @@ import { registerExpenseTools } from "./tools/expenses.js";
 import { registerBankingTools } from "./tools/banking.js";
 import { registerCategoryTools } from "./tools/categories.js";
 import { registerAccountingTools } from "./tools/accounting.js";
+import { registerAttachmentTools } from "./tools/attachments.js";
 
 const FREEAGENT_ACCESS_TOKEN = process.env.FREEAGENT_ACCESS_TOKEN;
 const FREEAGENT_CLIENT_ID = process.env.FREEAGENT_CLIENT_ID;
@@ -104,6 +105,7 @@ if (process.argv[2] === "auth") {
   registerBankingTools(server, client);
   registerCategoryTools(server, client);
   registerAccountingTools(server, client);
+  registerAttachmentTools(server, client);
 
   async function main() {
     const transport = new StdioServerTransport();
