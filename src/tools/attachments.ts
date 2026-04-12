@@ -1,5 +1,5 @@
 import path from "node:path";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { FreeAgentClient } from "../client.js";
@@ -23,6 +23,25 @@ const ACCEPTED_CONTENT_TYPES = new Set([
   "image/gif",
   "application/x-pdf",
 ]);
+
+const PRESIGNED_FIELDS = [
+  "content_src",
+  "content_src_medium",
+  "content_src_small",
+  "expires_at",
+] as const;
+
+function stripPresignedFields(
+  attachment: Record<string, unknown>
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(attachment)) {
+    if (!(PRESIGNED_FIELDS as readonly string[]).includes(k)) {
+      result[k] = v;
+    }
+  }
+  return result;
+}
 
 const RESOURCE_CONFIG: Record<string, { urlPath: string; wrapperKey: string }> =
   {
@@ -126,7 +145,7 @@ export function registerAttachmentTools(
 
   server.tool(
     "freeagent_get_attachment",
-    "Retrieve attachment metadata and download URLs from FreeAgent",
+    "Retrieve attachment metadata (file_name, content_type, file_size, description) from FreeAgent. Use freeagent_download_attachment to fetch the file contents.",
     {
       attachment_id: z
         .string()
@@ -135,8 +154,75 @@ export function registerAttachmentTools(
     async ({ attachment_id }) => {
       logToolCall("freeagent_get_attachment", { attachment_id });
       try {
-        const data = await client.get(`/attachments/${attachment_id}`);
-        return jsonResponse(data);
+        const data = (await client.get(
+          `/attachments/${attachment_id}`
+        )) as { attachment?: Record<string, unknown> };
+        return jsonResponse({
+          attachment: stripPresignedFields(data.attachment ?? {}),
+        });
+      } catch (error) {
+        return errorResponse(error);
+      }
+    }
+  );
+
+  server.tool(
+    "freeagent_download_attachment",
+    "Download a FreeAgent attachment to disk. Writes the file bytes to save_path (must be an absolute path — ~ is not expanded). Returns file metadata including where it was saved.",
+    {
+      attachment_id: z
+        .string()
+        .describe("The ID of the attachment to download"),
+      save_path: z
+        .string()
+        .describe(
+          "Absolute path where the file will be written (e.g. /tmp/invoice.pdf). Tilde (~) is not expanded."
+        ),
+    },
+    async ({ attachment_id, save_path }) => {
+      logToolCall("freeagent_download_attachment", {
+        attachment_id,
+        save_path,
+      });
+      try {
+        if (!path.isAbsolute(save_path)) {
+          return errorResponse(
+            new Error(
+              `save_path must be absolute, got "${save_path}" — tilde (~) is not expanded`
+            )
+          );
+        }
+
+        const data = (await client.get(
+          `/attachments/${attachment_id}`
+        )) as { attachment?: Record<string, unknown> };
+        const attachment = data.attachment ?? {};
+        const contentSrc = attachment.content_src as string | undefined;
+        if (!contentSrc) {
+          return errorResponse(
+            new Error("Attachment response missing content_src")
+          );
+        }
+
+        const response = await fetch(contentSrc);
+        if (!response.ok) {
+          return errorResponse(
+            new Error(
+              `Failed to fetch attachment: ${response.status} ${response.statusText ?? ""}`.trim()
+            )
+          );
+        }
+
+        const buffer = Buffer.from(await response.arrayBuffer());
+        await writeFile(save_path, buffer);
+
+        return jsonResponse({
+          file_path: save_path,
+          file_name: attachment.file_name,
+          content_type: attachment.content_type,
+          file_size: attachment.file_size,
+          description: attachment.description,
+        });
       } catch (error) {
         return errorResponse(error);
       }

@@ -5,9 +5,10 @@ import type { FreeAgentClient } from "../client.js";
 vi.mock("node:fs/promises", () => ({
   readFile: vi.fn(),
   stat: vi.fn(),
+  writeFile: vi.fn(),
 }));
 
-import { readFile, stat } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import { registerAttachmentTools } from "./attachments.js";
 
 type ToolHandler = (...args: any[]) => any;
@@ -46,9 +47,11 @@ function createMockClient() {
 let errorSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
+  vi.clearAllMocks();
   errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
   vi.mocked(stat).mockResolvedValue({ size: 1024 } as any);
   vi.mocked(readFile).mockResolvedValue(Buffer.from("fake-file-content"));
+  vi.mocked(writeFile).mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -57,11 +60,11 @@ afterEach(() => {
 });
 
 describe("registerAttachmentTools", () => {
-  it("registers 3 tools", () => {
+  it("registers 4 tools", () => {
     const { server, tools } = createMockServer();
     const client = createMockClient();
     registerAttachmentTools(server, client);
-    expect(tools.size).toBe(3);
+    expect(tools.size).toBe(4);
   });
 });
 
@@ -340,21 +343,56 @@ describe("freeagent_get_attachment", () => {
     return { handler: tools.get("freeagent_get_attachment")!, client };
   }
 
+  const API_RESPONSE = {
+    attachment: {
+      url: "https://api.freeagent.com/v2/attachments/42",
+      content_src: "https://s3.example.com/presigned?expires=30",
+      content_src_medium: "https://s3.example.com/medium?expires=30",
+      content_src_small: "https://s3.example.com/small?expires=30",
+      expires_at: "2026-04-12T11:12:22.000Z",
+      content_type: "application/pdf",
+      file_name: "invoice.pdf",
+      file_size: 92886,
+      description: "invoice",
+    },
+  };
+
   it("calls client.get with correct path", async () => {
     const { handler, client } = getHandler();
+    (client.get as any).mockResolvedValue(API_RESPONSE);
 
     await handler({ attachment_id: "42" });
 
     expect(client.get).toHaveBeenCalledWith("/attachments/42");
   });
 
-  it("returns jsonResponse with API data", async () => {
-    const { handler } = getHandler();
+  it("strips presigned content_src fields and expires_at from response", async () => {
+    const { handler, client } = getHandler();
+    (client.get as any).mockResolvedValue(API_RESPONSE);
 
     const result = await handler({ attachment_id: "42" });
+    const parsed = JSON.parse(result.content[0].text);
 
-    expect(result.content[0].type).toBe("text");
-    expect(JSON.parse(result.content[0].text)).toEqual({ data: "mock" });
+    expect(parsed.attachment).not.toHaveProperty("content_src");
+    expect(parsed.attachment).not.toHaveProperty("content_src_medium");
+    expect(parsed.attachment).not.toHaveProperty("content_src_small");
+    expect(parsed.attachment).not.toHaveProperty("expires_at");
+  });
+
+  it("preserves non-URL metadata fields", async () => {
+    const { handler, client } = getHandler();
+    (client.get as any).mockResolvedValue(API_RESPONSE);
+
+    const result = await handler({ attachment_id: "42" });
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.attachment).toMatchObject({
+      url: "https://api.freeagent.com/v2/attachments/42",
+      content_type: "application/pdf",
+      file_name: "invoice.pdf",
+      file_size: 92886,
+      description: "invoice",
+    });
   });
 
   it("returns error when API call fails", async () => {
@@ -365,6 +403,138 @@ describe("freeagent_get_attachment", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toBe("Error: Not found");
+  });
+});
+
+describe("freeagent_download_attachment", () => {
+  function getHandler() {
+    const { server, tools } = createMockServer();
+    const client = createMockClient();
+    registerAttachmentTools(server, client);
+    return { handler: tools.get("freeagent_download_attachment")!, client };
+  }
+
+  const API_RESPONSE = {
+    attachment: {
+      url: "https://api.freeagent.com/v2/attachments/42",
+      content_src: "https://s3.example.com/presigned",
+      content_type: "application/pdf",
+      file_name: "invoice.pdf",
+      file_size: 92886,
+      description: "invoice",
+    },
+  };
+
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => new Uint8Array([0x25, 0x50, 0x44, 0x46]).buffer,
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("fetches attachment metadata from API", async () => {
+    const { handler, client } = getHandler();
+    (client.get as any).mockResolvedValue(API_RESPONSE);
+
+    await handler({ attachment_id: "42", save_path: "/tmp/out.pdf" });
+
+    expect(client.get).toHaveBeenCalledWith("/attachments/42");
+  });
+
+  it("fetches the presigned content_src URL", async () => {
+    const { handler, client } = getHandler();
+    (client.get as any).mockResolvedValue(API_RESPONSE);
+
+    await handler({ attachment_id: "42", save_path: "/tmp/out.pdf" });
+
+    expect(fetchSpy).toHaveBeenCalledWith("https://s3.example.com/presigned");
+  });
+
+  it("writes fetched bytes to save_path", async () => {
+    const { handler, client } = getHandler();
+    (client.get as any).mockResolvedValue(API_RESPONSE);
+
+    await handler({ attachment_id: "42", save_path: "/tmp/out.pdf" });
+
+    expect(writeFile).toHaveBeenCalledWith(
+      "/tmp/out.pdf",
+      expect.any(Buffer)
+    );
+    const writtenBuffer = vi.mocked(writeFile).mock.calls[0][1] as Buffer;
+    expect(Array.from(writtenBuffer)).toEqual([0x25, 0x50, 0x44, 0x46]);
+  });
+
+  it("returns metadata without presigned URL", async () => {
+    const { handler, client } = getHandler();
+    (client.get as any).mockResolvedValue(API_RESPONSE);
+
+    const result = await handler({ attachment_id: "42", save_path: "/tmp/out.pdf" });
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed).toMatchObject({
+      file_path: "/tmp/out.pdf",
+      file_name: "invoice.pdf",
+      content_type: "application/pdf",
+      file_size: 92886,
+    });
+    expect(parsed).not.toHaveProperty("content_src");
+  });
+
+  it("rejects relative save_path", async () => {
+    const { handler, client } = getHandler();
+    (client.get as any).mockResolvedValue(API_RESPONSE);
+
+    const result = await handler({ attachment_id: "42", save_path: "out.pdf" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/absolute/i);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("returns error when API call fails", async () => {
+    const { handler, client } = getHandler();
+    (client.get as any).mockRejectedValue(new Error("Not found"));
+
+    const result = await handler({ attachment_id: "999", save_path: "/tmp/out.pdf" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toBe("Error: Not found");
+  });
+
+  it("returns error when presigned fetch fails", async () => {
+    const { handler, client } = getHandler();
+    (client.get as any).mockResolvedValue(API_RESPONSE);
+    fetchSpy.mockResolvedValue({
+      ok: false,
+      status: 403,
+      statusText: "Forbidden",
+      arrayBuffer: async () => new ArrayBuffer(0),
+    });
+
+    const result = await handler({ attachment_id: "42", save_path: "/tmp/out.pdf" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/403/);
+    expect(writeFile).not.toHaveBeenCalled();
+  });
+
+  it("returns error when writeFile fails", async () => {
+    const { handler, client } = getHandler();
+    (client.get as any).mockResolvedValue(API_RESPONSE);
+    vi.mocked(writeFile).mockRejectedValue(new Error("EACCES"));
+
+    const result = await handler({ attachment_id: "42", save_path: "/tmp/out.pdf" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/EACCES/);
   });
 });
 
