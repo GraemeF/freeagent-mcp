@@ -197,11 +197,11 @@ describe("registerExpenseTools", () => {
 });
 
 describe("registerBankingTools", () => {
-  it("registers 7 tools", () => {
+  it("registers 8 tools", () => {
     const { server, tools } = createMockServer();
     const client = createMockClient();
     registerBankingTools(server, client);
-    expect(tools.size).toBe(7);
+    expect(tools.size).toBe(8);
   });
 
   it("freeagent_list_bank_transactions requires bank_account param", async () => {

@@ -189,4 +189,60 @@ export function registerBankingTools(server: McpServer, client: FreeAgentClient)
       }
     }
   );
+
+  // ── Bank Transaction Explanations ─────────────────────────────────
+
+  server.tool(
+    "freeagent_update_bank_transaction_explanation",
+    "Update an existing bank transaction explanation in FreeAgent. Use ec_status to set Reverse Charge or other VAT supply statuses.",
+    {
+      explanation_id: z.string().describe("The ID of the bank transaction explanation to update"),
+      category: z.string().optional().describe("Category URL for the explanation"),
+      description: z.string().optional().describe("Explanation description"),
+      gross_value: z.string().optional().describe("Gross value as a decimal string"),
+      ec_status: z
+        .enum(["UK/Non-EC", "EC Goods", "EC Services", "Reverse Charge", "EC VAT MOSS"])
+        .optional()
+        .describe("EC/VAT supply status. Use 'Reverse Charge' for non-UK B2B SaaS suppliers"),
+      sales_tax_rate: z.string().optional().describe("Sales tax rate as a decimal string (e.g. '20.0')"),
+      sales_tax_status: z
+        .enum(["TAXABLE", "EXEMPT", "OUT_OF_SCOPE"])
+        .optional()
+        .describe("Sales tax status"),
+      place_of_supply: z.string().optional().describe("Place of supply (required for EC VAT MOSS)"),
+      marked_for_review: z.boolean().optional().describe("Mark/unmark for review"),
+    },
+    async ({
+      explanation_id,
+      category,
+      description,
+      gross_value,
+      ec_status,
+      sales_tax_rate,
+      sales_tax_status,
+      place_of_supply,
+      marked_for_review,
+    }) => {
+      logToolCall("freeagent_update_bank_transaction_explanation", { explanation_id });
+      try {
+        const bank_transaction_explanation: Record<string, unknown> = {};
+        if (category !== undefined) bank_transaction_explanation.category = category;
+        if (description !== undefined) bank_transaction_explanation.description = description;
+        if (gross_value !== undefined) bank_transaction_explanation.gross_value = gross_value;
+        if (ec_status !== undefined) bank_transaction_explanation.ec_status = ec_status;
+        if (sales_tax_rate !== undefined) bank_transaction_explanation.sales_tax_rate = sales_tax_rate;
+        if (sales_tax_status !== undefined) bank_transaction_explanation.sales_tax_status = sales_tax_status;
+        if (place_of_supply !== undefined) bank_transaction_explanation.place_of_supply = place_of_supply;
+        if (marked_for_review !== undefined) bank_transaction_explanation.marked_for_review = marked_for_review;
+
+        const data = await client.putJson(
+          `/bank_transaction_explanations/${explanation_id}`,
+          { bank_transaction_explanation }
+        );
+        return jsonResponse(data);
+      } catch (error) {
+        return errorResponse(error);
+      }
+    }
+  );
 }
