@@ -262,3 +262,89 @@ describe("registerAccountingTools", () => {
     );
   });
 });
+
+describe("freeagent_update_bank_transaction_explanation", () => {
+  function getHandler() {
+    const { server, tools } = createMockServer();
+    const client = createMockClient();
+    registerBankingTools(server, client);
+    return { handler: tools.get("freeagent_update_bank_transaction_explanation")!, client };
+  }
+
+  it("calls putJson with correct path", async () => {
+    const { handler, client } = getHandler();
+
+    await handler({ explanation_id: "684131092", ec_status: "Reverse Charge" });
+
+    expect(client.putJson).toHaveBeenCalledWith(
+      "/bank_transaction_explanations/684131092",
+      expect.any(Object)
+    );
+  });
+
+  it("wraps body in bank_transaction_explanation key", async () => {
+    const { handler, client } = getHandler();
+
+    await handler({ explanation_id: "684131092", ec_status: "Reverse Charge" });
+
+    expect(client.putJson).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        bank_transaction_explanation: expect.objectContaining({
+          ec_status: "Reverse Charge",
+        }),
+      })
+    );
+  });
+
+  it("only includes provided fields", async () => {
+    const { handler, client } = getHandler();
+
+    await handler({ explanation_id: "123", ec_status: "Reverse Charge" });
+
+    const body = (client.putJson as any).mock.calls[0][1];
+    expect(Object.keys(body.bank_transaction_explanation)).toEqual(["ec_status"]);
+  });
+
+  it("passes all optional fields when provided", async () => {
+    const { handler, client } = getHandler();
+
+    await handler({
+      explanation_id: "123",
+      category: "https://api.freeagent.com/v2/categories/269",
+      description: "GitHub subscription",
+      gross_value: "37.71",
+      ec_status: "Reverse Charge",
+      sales_tax_rate: "20.0",
+      sales_tax_status: "TAXABLE",
+      place_of_supply: "Ireland",
+      marked_for_review: false,
+    });
+
+    expect(client.putJson).toHaveBeenCalledWith(
+      "/bank_transaction_explanations/123",
+      {
+        bank_transaction_explanation: {
+          category: "https://api.freeagent.com/v2/categories/269",
+          description: "GitHub subscription",
+          gross_value: "37.71",
+          ec_status: "Reverse Charge",
+          sales_tax_rate: "20.0",
+          sales_tax_status: "TAXABLE",
+          place_of_supply: "Ireland",
+          marked_for_review: false,
+        },
+      }
+    );
+  });
+
+  it("returns error when API call fails", async () => {
+    const { handler, client } = getHandler();
+    (client.putJson as any).mockRejectedValue(new Error("Unprocessable Entity"));
+
+    const result = await handler({ explanation_id: "123", ec_status: "Reverse Charge" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toBe("Error: Unprocessable Entity");
+  });
+});
