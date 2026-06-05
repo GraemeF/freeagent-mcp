@@ -32,6 +32,12 @@ jobs:
             echo "Failed to resolve version from package.json" >&2
             exit 1
           fi
+          # Reject anything that isn't a plain version token before it reaches
+          # $GITHUB_ENV (guards against newline/`=` env-file injection).
+          if ! printf '%s' "$version" | grep -qE '^[0-9A-Za-z.+_-]+$'; then
+            echo "Refusing unexpected version string: ${version}" >&2
+            exit 1
+          fi
           echo "VERSION=${version}" >> "$GITHUB_ENV"
 
       - name: Push image to GHCR
