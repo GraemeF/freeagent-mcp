@@ -1,0 +1,51 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Publish freeagent-mcp image
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: ghcr.io/graemef/hermes-mcp-freeagent
+
+jobs:
+  publish:
+    name: Build and push image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Build image
+        run: nix build .#mcp-image
+
+      - name: Resolve version from package.json
+        run: |
+          version=$(jq -r '.version' package.json)
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "Failed to resolve version from package.json" >&2
+            exit 1
+          fi
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+
+      - name: Push image to GHCR
+        env:
+          GH_USER: ${{ github.actor }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          for tag in "${VERSION}" "sha-${GITHUB_SHA}"; do
+            nix run nixpkgs#skopeo -- \
+              --insecure-policy \
+              copy \
+              --retry-times 3 \
+              --dest-creds "${GH_USER}:${GH_TOKEN}" \
+              docker-archive:result \
+              "docker://${IMAGE_NAME}:${tag}"
+          done
