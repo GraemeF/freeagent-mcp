@@ -40,6 +40,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          # The github-hosted runner ships a v1 /etc/containers/registries.conf
+          # that nixpkgs skopeo rejects. Point it at a minimal v2 config.
+          CONTAINERS_REGISTRIES_CONF="$(mktemp)"
+          export CONTAINERS_REGISTRIES_CONF
+          printf 'unqualified-search-registries = []\n' > "${CONTAINERS_REGISTRIES_CONF}"
           for tag in "${VERSION}" "sha-${GITHUB_SHA}"; do
             nix run nixpkgs#skopeo -- \
               --insecure-policy \
