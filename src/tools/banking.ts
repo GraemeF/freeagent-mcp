@@ -245,4 +245,82 @@ export function registerBankingTools(server: McpServer, client: FreeAgentClient)
       }
     }
   );
+
+  server.tool(
+    "freeagent_create_bank_transaction_explanation",
+    "Create a bank transaction explanation in FreeAgent. Supply bank_transaction to explain an existing imported transaction, or bank_account to create a new manual transaction on that account. Set transfer_bank_account to move money between two accounts (a Transfer to/from Another Account) — FreeAgent creates the linked explanation on the other account automatically.",
+    {
+      bank_account: z
+        .string()
+        .optional()
+        .describe(
+          "Full URL of the bank account to create a new manual transaction on. Use this OR bank_transaction."
+        ),
+      bank_transaction: z
+        .string()
+        .optional()
+        .describe(
+          "Full URL of an existing bank transaction to explain. Use this OR bank_account."
+        ),
+      dated_on: z.string().describe("Date of the explanation (YYYY-MM-DD)"),
+      gross_value: z.string().describe("Gross value as a decimal string (e.g. '35.47')"),
+      transfer_bank_account: z
+        .string()
+        .optional()
+        .describe(
+          "Full URL of the other bank account for a transfer. Creates a Transfer to/from Another Account."
+        ),
+      category: z
+        .string()
+        .optional()
+        .describe("Category URL for the explanation (not used for transfers)"),
+      description: z.string().optional().describe("Explanation description"),
+      sales_tax_rate: z.string().optional().describe("Sales tax rate as a decimal string (e.g. '20.0')"),
+      sales_tax_status: z
+        .enum(["TAXABLE", "EXEMPT", "OUT_OF_SCOPE"])
+        .optional()
+        .describe("Sales tax status"),
+    },
+    async ({
+      bank_account,
+      bank_transaction,
+      dated_on,
+      gross_value,
+      transfer_bank_account,
+      category,
+      description,
+      sales_tax_rate,
+      sales_tax_status,
+    }) => {
+      logToolCall("freeagent_create_bank_transaction_explanation", {
+        bank_account,
+        bank_transaction,
+        dated_on,
+        transfer_bank_account,
+      });
+      try {
+        const bank_transaction_explanation: Record<string, unknown> = {
+          dated_on,
+          gross_value,
+        };
+        if (bank_account !== undefined) bank_transaction_explanation.bank_account = bank_account;
+        if (bank_transaction !== undefined)
+          bank_transaction_explanation.bank_transaction = bank_transaction;
+        if (transfer_bank_account !== undefined)
+          bank_transaction_explanation.transfer_bank_account = transfer_bank_account;
+        if (category !== undefined) bank_transaction_explanation.category = category;
+        if (description !== undefined) bank_transaction_explanation.description = description;
+        if (sales_tax_rate !== undefined) bank_transaction_explanation.sales_tax_rate = sales_tax_rate;
+        if (sales_tax_status !== undefined)
+          bank_transaction_explanation.sales_tax_status = sales_tax_status;
+
+        const data = await client.postJson("/bank_transaction_explanations", {
+          bank_transaction_explanation,
+        });
+        return jsonResponse(data);
+      } catch (error) {
+        return errorResponse(error);
+      }
+    }
+  );
 }

@@ -197,11 +197,11 @@ describe("registerExpenseTools", () => {
 });
 
 describe("registerBankingTools", () => {
-  it("registers 8 tools", () => {
+  it("registers 9 tools", () => {
     const { server, tools } = createMockServer();
     const client = createMockClient();
     registerBankingTools(server, client);
-    expect(tools.size).toBe(8);
+    expect(tools.size).toBe(9);
   });
 
   it("freeagent_list_bank_transactions requires bank_account param", async () => {
@@ -343,6 +343,115 @@ describe("freeagent_update_bank_transaction_explanation", () => {
     (client.putJson as any).mockRejectedValue(new Error("Unprocessable Entity"));
 
     const result = await handler({ explanation_id: "123", ec_status: "Reverse Charge" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toBe("Error: Unprocessable Entity");
+  });
+});
+
+describe("freeagent_create_bank_transaction_explanation", () => {
+  function getHandler() {
+    const { server, tools } = createMockServer();
+    const client = createMockClient();
+    registerBankingTools(server, client);
+    return { handler: tools.get("freeagent_create_bank_transaction_explanation")!, client };
+  }
+
+  it("posts to /bank_transaction_explanations wrapped in the root key", async () => {
+    const { handler, client } = getHandler();
+
+    await handler({
+      bank_account: "https://api.freeagent.com/v2/bank_accounts/1385747",
+      dated_on: "2026-06-01",
+      gross_value: "35.47",
+    });
+
+    expect(client.postJson).toHaveBeenCalledWith(
+      "/bank_transaction_explanations",
+      expect.objectContaining({
+        bank_transaction_explanation: expect.objectContaining({
+          bank_account: "https://api.freeagent.com/v2/bank_accounts/1385747",
+          dated_on: "2026-06-01",
+          gross_value: "35.47",
+        }),
+      })
+    );
+  });
+
+  it("creates a transfer between accounts via transfer_bank_account", async () => {
+    const { handler, client } = getHandler();
+
+    await handler({
+      bank_account: "https://api.freeagent.com/v2/bank_accounts/1385747",
+      dated_on: "2026-06-01",
+      gross_value: "35.47",
+      transfer_bank_account: "https://api.freeagent.com/v2/bank_accounts/1385757",
+      description: "Interest for May 2026",
+    });
+
+    expect(client.postJson).toHaveBeenCalledWith(
+      "/bank_transaction_explanations",
+      {
+        bank_transaction_explanation: {
+          bank_account: "https://api.freeagent.com/v2/bank_accounts/1385747",
+          dated_on: "2026-06-01",
+          gross_value: "35.47",
+          transfer_bank_account: "https://api.freeagent.com/v2/bank_accounts/1385757",
+          description: "Interest for May 2026",
+        },
+      }
+    );
+  });
+
+  it("explains an existing transaction via bank_transaction", async () => {
+    const { handler, client } = getHandler();
+
+    await handler({
+      bank_transaction: "https://api.freeagent.com/v2/bank_transactions/773113827",
+      dated_on: "2026-06-01",
+      gross_value: "35.47",
+      category: "https://api.freeagent.com/v2/categories/051",
+    });
+
+    expect(client.postJson).toHaveBeenCalledWith(
+      "/bank_transaction_explanations",
+      {
+        bank_transaction_explanation: {
+          bank_transaction: "https://api.freeagent.com/v2/bank_transactions/773113827",
+          dated_on: "2026-06-01",
+          gross_value: "35.47",
+          category: "https://api.freeagent.com/v2/categories/051",
+        },
+      }
+    );
+  });
+
+  it("only includes provided fields", async () => {
+    const { handler, client } = getHandler();
+
+    await handler({
+      bank_account: "https://api.freeagent.com/v2/bank_accounts/1385747",
+      dated_on: "2026-06-01",
+      gross_value: "35.47",
+    });
+
+    const body = (client.postJson as any).mock.calls[0][1];
+    expect(Object.keys(body.bank_transaction_explanation)).toEqual([
+      "dated_on",
+      "gross_value",
+      "bank_account",
+    ]);
+  });
+
+  it("returns error when API call fails", async () => {
+    const { handler, client } = getHandler();
+    (client.postJson as any).mockRejectedValue(new Error("Unprocessable Entity"));
+
+    const result = await handler({
+      bank_account: "https://api.freeagent.com/v2/bank_accounts/1385747",
+      dated_on: "2026-06-01",
+      gross_value: "35.47",
+    });
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toBe("Error: Unprocessable Entity");
