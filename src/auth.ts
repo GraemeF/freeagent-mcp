@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createInterface } from "node:readline";
-import { exec } from "node:child_process";
+import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { TOKEN_BUFFER_MS } from "./utils.js";
 
@@ -40,7 +40,7 @@ export function loadTokens(): StoredTokens | null {
 }
 
 export function saveTokens(tokens: StoredTokens): void {
-  mkdirSync(TOKEN_DIR, { recursive: true });
+  mkdirSync(TOKEN_DIR, { recursive: true, mode: 0o700 });
   writeFileSync(TOKEN_FILE, JSON.stringify(tokens, null, 2), { mode: 0o600 });
   try {
     chmodSync(TOKEN_FILE, 0o600);
@@ -124,15 +124,19 @@ export async function getValidAccessToken(
   }
 }
 
-function openBrowser(url: string): void {
+export function openBrowser(url: string): void {
   const platform = process.platform;
-  const cmd =
-    platform === "darwin"
-      ? "open"
-      : platform === "win32"
-        ? "start"
-        : "xdg-open";
-  exec(`${cmd} "${url}"`);
+  // Windows has no `open`/`xdg-open` equivalent. Avoid `cmd /c start`: cmd.exe
+  // treats `&` as a command separator, and execFile won't quote the URL (it has
+  // no spaces), so the OAuth URL would be truncated at its first `&` query
+  // separator. explorer.exe is a real executable that opens the URL in the
+  // default browser; execFile passes it as a single literal arg (CommandLineToArgvW
+  // parsing, where `&` is not special), so the query string survives intact.
+  if (platform === "win32") {
+    execFile("explorer.exe", [url]);
+  } else {
+    execFile(platform === "darwin" ? "open" : "xdg-open", [url]);
+  }
 }
 
 async function exchangeCodeForTokens(

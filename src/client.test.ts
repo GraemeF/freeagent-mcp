@@ -51,7 +51,7 @@ describe("FreeAgentClient - GET", () => {
       "application/json"
     );
     expect((opts.headers as Record<string, string>)["User-Agent"]).toBe(
-      "freeagent-mcp/1.0.0"
+      "freeagent-mcp-server"
     );
   });
 
@@ -194,6 +194,36 @@ describe("FreeAgentClient - token provider", () => {
     expect((opts.headers as Record<string, string>).Authorization).toBe(
       "Bearer static-token"
     );
+  });
+});
+
+describe("FreeAgentClient - path safety", () => {
+  it("rejects absolute URLs that would override the base", async () => {
+    mockFetch.mockResolvedValueOnce(mockOk({ data: "ok" }));
+    const client = new FreeAgentClient("token");
+
+    await expect(
+      client.get("https://evil.com/steal")
+    ).rejects.toThrow();
+  });
+
+  it("rejects paths with traversal sequences", async () => {
+    mockFetch.mockResolvedValueOnce(mockOk({ data: "ok" }));
+    const client = new FreeAgentClient("token");
+
+    await expect(
+      client.get("/contacts/../../users/me")
+    ).rejects.toThrow();
+  });
+
+  it("allows normal API paths", async () => {
+    mockFetch.mockResolvedValueOnce(mockOk({ data: "ok" }));
+    const client = new FreeAgentClient("token");
+
+    await client.get("/contacts/123");
+    const url = mockFetch.mock.calls[0][0] as string;
+    expect(url).toContain("api.freeagent.com");
+    expect(url).toContain("/contacts/123");
   });
 });
 
