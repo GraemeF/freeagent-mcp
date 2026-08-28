@@ -1,16 +1,18 @@
 name: Publish to npm
 
-# Publishes to npm whenever package.json's version changes on main (i.e. a
-# release PR is merged). Ordinary merges are no-ops because the version guard
-# skips versions already present on the registry.
+# Publishes package.json's version to npm when run. The version guard makes a
+# run a no-op for a version already present on the registry.
 #
 # Authentication uses npm Trusted Publishing (OIDC) — no NPM_TOKEN secret is
 # required. Configure the trusted publisher on npmjs.com to point at this
 # workflow file (publish.yml) before the first release lands.
+#
+# This fork is consumed from a local checkout, never from npm, and publishes
+# under a name it does not own on the registry. Releasing is therefore manual
+# here: restore the push trigger only alongside a configured trusted publisher.
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write # create the release tag + GitHub Release

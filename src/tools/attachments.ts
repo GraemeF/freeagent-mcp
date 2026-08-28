@@ -3,7 +3,7 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { FreeAgentClient } from "../client.js";
-import { jsonResponse, errorResponse, logToolCall } from "../utils.js";
+import { jsonResponse, errorResponse, logToolCall, safeId } from "../utils.js";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
 
@@ -64,9 +64,7 @@ export function registerAttachmentTools(
       resource_type: z
         .enum(["expense", "bill", "bank_transaction_explanation"])
         .describe("The type of resource to attach the file to"),
-      resource_id: z
-        .string()
-        .describe("The ID of the parent resource"),
+      resource_id: safeId.describe("The ID of the parent resource"),
       file_path: z
         .string()
         .describe("Absolute path to the file on disk"),
@@ -147,9 +145,7 @@ export function registerAttachmentTools(
     "freeagent_get_attachment",
     "Retrieve attachment metadata (file_name, content_type, file_size, description) from FreeAgent. Use freeagent_download_attachment to fetch the file contents.",
     {
-      attachment_id: z
-        .string()
-        .describe("The ID of the attachment to retrieve"),
+      attachment_id: safeId.describe("The ID of the attachment to retrieve"),
     },
     async ({ attachment_id }) => {
       logToolCall("freeagent_get_attachment", { attachment_id });
@@ -170,9 +166,7 @@ export function registerAttachmentTools(
     "freeagent_download_attachment",
     "Download a FreeAgent attachment to disk. Writes the file bytes to save_path (must be an absolute path — ~ is not expanded). Returns file metadata including where it was saved.",
     {
-      attachment_id: z
-        .string()
-        .describe("The ID of the attachment to download"),
+      attachment_id: safeId.describe("The ID of the attachment to download"),
       save_path: z
         .string()
         .describe(
@@ -233,9 +227,7 @@ export function registerAttachmentTools(
     "freeagent_delete_attachment",
     "Delete an attachment from FreeAgent",
     {
-      attachment_id: z
-        .string()
-        .describe("The ID of the attachment to delete"),
+      attachment_id: safeId.describe("The ID of the attachment to delete"),
     },
     async ({ attachment_id }) => {
       logToolCall("freeagent_delete_attachment", { attachment_id });

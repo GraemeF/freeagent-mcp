@@ -196,7 +196,7 @@ export function registerBankingTools(server: McpServer, client: FreeAgentClient)
     "freeagent_update_bank_transaction_explanation",
     "Update an existing bank transaction explanation in FreeAgent. Use ec_status to set Reverse Charge or other VAT supply statuses.",
     {
-      explanation_id: z.string().describe("The ID of the bank transaction explanation to update"),
+      explanation_id: safeId.describe("The ID of the bank transaction explanation to update"),
       category: z.string().optional().describe("Category URL for the explanation"),
       description: z.string().optional().describe("Explanation description"),
       gross_value: z.string().optional().describe("Gross value as a decimal string"),
